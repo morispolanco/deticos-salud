@@ -1,5 +1,8 @@
 // --- Elementos del DOM ---
 const loadingDiv = document.getElementById('loading');
+const errorMessageDiv = document.getElementById('error-message');
+const errorMessageP = errorMessageDiv.querySelector('p');
+const retryBtn = document.getElementById('retry-btn');
 const dilemmaContainerDiv = document.getElementById('dilemma-container');
 const progressP = document.getElementById('progress');
 const dilemmaTextP = document.getElementById('dilemma-text');
@@ -13,9 +16,9 @@ const endScreenDiv = document.getElementById('end-screen');
 const restartBtn = document.getElementById('restart-btn');
 
 // --- Estado de la Aplicación ---
-let dilemmas = []; // Almacenará los 20 dilemas generados
-let currentDilemmaIndex = 0;
+let currentDilemmaIndex = 0; // Cuenta cuántos dilemas se han *empezado* a mostrar
 let selectedOptionId = null;
+let currentFeedbackData = null; // Almacena el objeto de feedback del dilema actual
 const TOTAL_DILEMMAS = 20;
 
 // --- Funciones ---
@@ -24,90 +27,90 @@ const TOTAL_DILEMMAS = 20;
  * Muestra un mensaje de error al usuario.
  */
 function showError(message) {
-    loadingDiv.innerHTML = `<p style="color: red;">Error: ${message}</p><p>Por favor, revisa la consola y recarga la página.</p>`;
-    loadingDiv.style.display = 'block';
+    errorMessageP.textContent = `Error: ${message}`;
+    errorMessageDiv.style.display = 'block';
+    loadingDiv.style.display = 'none';
     dilemmaContainerDiv.style.display = 'none';
     endScreenDiv.style.display = 'none';
 }
 
 /**
- * Llama a la función Serverless para obtener un dilema ético.
+ * Oculta el mensaje de error.
+ */
+function hideError() {
+    errorMessageDiv.style.display = 'none';
+}
+
+/**
+ * Muestra/oculta el indicador de carga.
+ */
+function setLoading(isLoading) {
+    loadingDiv.style.display = isLoading ? 'block' : 'none';
+    if (isLoading) {
+        hideError(); // Oculta errores previos al cargar
+        dilemmaContainerDiv.style.display = 'none'; // Oculta contenido mientras carga
+        feedbackAreaDiv.style.display = 'none'; // Oculta feedback
+        nextBtn.style.display = 'none'; // Oculta botón siguiente
+        submitBtn.style.display = 'none'; // Oculta botón enviar mientras carga
+    }
+}
+
+/**
+ * Llama a la función Serverless para obtener UN dilema ético.
  */
 async function fetchDilemmaFromAPI() {
+    setLoading(true);
     try {
         const response = await fetch('/api/generateDilemma'); // Llama a nuestra función serverless
         if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(errorData.error || `Error del servidor: ${response.status}`);
+            let errorData = { error: `Error del servidor: ${response.status}` };
+            try {
+                errorData = await response.json(); // Intenta obtener un mensaje de error del backend
+            } catch (e) { /* Ignora si no hay JSON */ }
+            throw new Error(errorData.error || `Error ${response.status}`);
         }
         const data = await response.json();
 
         // Validación básica de la respuesta de la API
-        if (!data.dilemma || !data.question || !data.options || data.options.length < 2 || !data.feedback) {
+        if (!data.dilemma || !data.question || !data.options || !Array.isArray(data.options) || data.options.length < 2 || !data.feedback || typeof data.feedback !== 'object') {
             console.error("Respuesta incompleta o mal formada de la API:", data);
             throw new Error("La API devolvió datos incompletos o con formato incorrecto.");
         }
-        // Asegurarse de que cada opción tiene id y text
         if (!data.options.every(opt => opt && opt.id && opt.text)) {
              console.error("Opciones mal formadas:", data.options);
              throw new Error("Las opciones recibidas de la API tienen un formato incorrecto.");
         }
-         // Asegurarse de que el feedback tiene entradas para cada opción ID
         if (!data.options.every(opt => data.feedback.hasOwnProperty(opt.id))) {
              console.error("Feedback incompleto:", data.feedback, "Opciones:", data.options);
              throw new Error("El feedback recibido de la API no coincide con las opciones.");
-        }
+         }
 
-        return data;
+        setLoading(false);
+        return data; // Devuelve el dilema generado
     } catch (error) {
         console.error('Error al llamar a la API de dilemas:', error);
+        setLoading(false);
         showError(`No se pudo obtener el dilema de la API. ${error.message}`);
         return null; // Devuelve null para indicar fallo
     }
 }
 
 /**
- * Genera los 20 dilemas llamando a la API repetidamente.
+ * Muestra el dilema recibido en la interfaz.
  */
-async function generateAllDilemmas() {
-    loadingDiv.style.display = 'block';
-    dilemmaContainerDiv.style.display = 'none';
-    endScreenDiv.style.display = 'none';
-    dilemmas = []; // Limpia dilemas previos si se reinicia
+function displayDilemma(dilemmaData) {
+    if (!dilemmaData) return; // No hacer nada si no hay datos
 
-    for (let i = 0; i < TOTAL_DILEMMAS; i++) {
-        console.log(`Generando dilema ${i + 1}...`);
-        const dilemma = await fetchDilemmaFromAPI();
-        if (dilemma) {
-            dilemmas.push(dilemma);
-            // Actualizar progreso visualmente (opcional pero bueno)
-            loadingDiv.querySelector('p').textContent = `Generando dilema ${i + 1} de ${TOTAL_DILEMMAS}...`;
-        } else {
-            // Si falla la obtención de un dilema, detenemos el proceso.
-            // El error ya se mostró en fetchDilemmaFromAPI
-            return false; // Indica que la generación falló
-        }
-    }
-    loadingDiv.style.display = 'none';
-    return true; // Indica que la generación fue exitosa
-}
+    // Almacena el feedback para usarlo al enviar la respuesta
+    currentFeedbackData = dilemmaData.feedback;
 
-/**
- * Muestra el dilema actual en la interfaz.
- */
-function displayDilemma(index) {
-    if (index >= dilemmas.length) {
-        showEndScreen();
-        return;
-    }
-
-    const currentDilemma = dilemmas[index];
-    progressP.textContent = `Dilema ${index + 1} de ${TOTAL_DILEMMAS}`;
-    dilemmaTextP.textContent = currentDilemma.dilemma;
-    questionTextP.textContent = currentDilemma.question;
+    // El índice aquí representa el *número* de dilema actual (empezando en 1)
+    progressP.textContent = `Dilema ${currentDilemmaIndex + 1} de ${TOTAL_DILEMMAS}`;
+    dilemmaTextP.textContent = dilemmaData.dilemma;
+    questionTextP.textContent = dilemmaData.question;
 
     optionsContainerDiv.innerHTML = ''; // Limpiar opciones anteriores
-    currentDilemma.options.forEach(option => {
+    dilemmaData.options.forEach(option => {
         const label = document.createElement('label');
         label.classList.add('option-label');
         label.htmlFor = `option-${option.id}`;
@@ -118,23 +121,46 @@ function displayDilemma(index) {
         radio.id = `option-${option.id}`;
         radio.value = option.id;
         radio.addEventListener('change', handleOptionSelect);
+        radio.disabled = false; // Asegurarse de que esté habilitado
 
         label.appendChild(radio);
-        label.appendChild(document.createTextNode(` ${option.text}`)); // Añadir texto de la opción
+        label.appendChild(document.createTextNode(` ${option.text}`));
         optionsContainerDiv.appendChild(label);
     });
 
     submitBtn.disabled = true; // Deshabilitar hasta que se seleccione una opción
-    feedbackAreaDiv.style.display = 'none';
-    nextBtn.style.display = 'none';
-    dilemmaContainerDiv.style.display = 'block';
+    submitBtn.style.display = 'inline-block'; // Asegura que el botón Enviar sea visible
+    feedbackAreaDiv.style.display = 'none'; // Ocultar feedback anterior
+    nextBtn.style.display = 'none'; // Ocultar botón Siguiente
+    dilemmaContainerDiv.style.display = 'block'; // Mostrar el contenedor del dilema
+    endScreenDiv.style.display = 'none';
     selectedOptionId = null; // Resetear selección
-     // Resetear estilos de opciones
-    document.querySelectorAll('.option-label').forEach(label => {
-        label.classList.remove('selected', 'correct', 'incorrect');
-    });
 
+    // Resetear estilos visuales
+    document.querySelectorAll('.option-label').forEach(label => {
+        label.classList.remove('selected');
+    });
 }
+
+/**
+ * Carga y muestra el siguiente dilema (o el primero).
+ */
+async function loadNextDilemma() {
+    // No incrementar aquí, el índice se incrementa en handleNext o restartApp
+
+    if (currentDilemmaIndex >= TOTAL_DILEMMAS) {
+        showEndScreen();
+        return;
+    }
+
+    const dilemmaData = await fetchDilemmaFromAPI();
+    if (dilemmaData) {
+        // Solo mostramos si la carga fue exitosa
+        displayDilemma(dilemmaData);
+    }
+    // Si hubo un error, fetchDilemmaFromAPI ya lo mostró con showError.
+}
+
 
 /**
  * Maneja la selección de una opción por el usuario.
@@ -143,10 +169,11 @@ function handleOptionSelect(event) {
     selectedOptionId = event.target.value;
     submitBtn.disabled = false;
 
-    // Resaltar opción seleccionada (visual)
+    // Resalta la opción seleccionada
     document.querySelectorAll('.option-label').forEach(label => {
         label.classList.remove('selected');
     });
+    // event.target es el input radio, closest('label') encuentra el label contenedor
     event.target.closest('label').classList.add('selected');
 }
 
@@ -154,29 +181,21 @@ function handleOptionSelect(event) {
  * Maneja el envío de la respuesta.
  */
 function handleSubmit() {
-    if (!selectedOptionId) return; // No hacer nada si no hay selección
+    if (!selectedOptionId || !currentFeedbackData) return; // No hacer nada si no hay selección o datos de feedback
 
-    const currentDilemma = dilemmas[currentDilemmaIndex];
-    const feedback = currentDilemma.feedback[selectedOptionId];
+    const feedback = currentFeedbackData[selectedOptionId];
 
     feedbackTextP.textContent = feedback || "No hay retroalimentación específica para esta opción."; // Fallback
     feedbackAreaDiv.style.display = 'block';
 
     // Deshabilitar opciones y botón de envío
     submitBtn.disabled = true;
+    submitBtn.style.display = 'none'; // Ocultar botón Enviar
     document.querySelectorAll('input[name="dilemma-option"]').forEach(radio => {
         radio.disabled = true;
-        const label = radio.closest('label');
-        // Opcional: Marcar visualmente la correcta/incorrecta si tienes esa info
-        // (La API actual no la pide explícitamente como "correcta", solo da feedback)
-        // if (radio.value === currentDilemma.correctOptionId) { // Si tuvieras 'correctOptionId'
-        //     label.classList.add('correct');
-        // } else if (radio.value === selectedOptionId) {
-        //     label.classList.add('incorrect');
-        // }
-        label.classList.remove('selected'); // Quitar el resaltado azul
+        // Opcional: quitar el resaltado azul al mostrar feedback
+        // radio.closest('label').classList.remove('selected');
     });
-
 
     nextBtn.style.display = 'inline-block'; // Mostrar botón para continuar
 }
@@ -185,11 +204,15 @@ function handleSubmit() {
  * Maneja el paso al siguiente dilema.
  */
 function handleNext() {
-    currentDilemmaIndex++;
+    currentDilemmaIndex++; // Incrementar el contador de dilemas completados/avanzados
+    // Ocultar feedback y botón 'next' inmediatamente
+    feedbackAreaDiv.style.display = 'none';
+    nextBtn.style.display = 'none';
+
     if (currentDilemmaIndex < TOTAL_DILEMMAS) {
-        displayDilemma(currentDilemmaIndex);
+        loadNextDilemma(); // Carga el siguiente
     } else {
-        showEndScreen();
+        showEndScreen(); // Se completaron los 20
     }
 }
 
@@ -198,41 +221,49 @@ function handleNext() {
  */
 function showEndScreen() {
     dilemmaContainerDiv.style.display = 'none';
+    loadingDiv.style.display = 'none';
+    errorMessageDiv.style.display = 'none';
+    feedbackAreaDiv.style.display = 'none';
+    nextBtn.style.display = 'none';
     endScreenDiv.style.display = 'block';
 }
 
 /**
  * Reinicia la aplicación.
  */
-async function restartApp() {
-    endScreenDiv.style.display = 'none';
-    loadingDiv.style.display = 'block';
-    currentDilemmaIndex = 0;
+function restartApp() {
+    currentDilemmaIndex = 0; // Reiniciar contador
     selectedOptionId = null;
+    currentFeedbackData = null;
+    endScreenDiv.style.display = 'none'; // Ocultar pantalla final
+    hideError(); // Ocultar errores previos si los hubo
+    loadNextDilemma(); // Cargar el primer dilema de nuevo
+}
 
-    // Volver a generar dilemas (o podrías reutilizar los existentes si prefieres)
-    const generated = await generateAllDilemmas();
-    if (generated) {
-        displayDilemma(currentDilemmaIndex);
-    }
-    // Si 'generated' es false, la función showError ya habrá mostrado un error.
+/**
+ * Manejador para el botón de reintentar en caso de error.
+ */
+function handleRetry() {
+     hideError(); // Oculta el mensaje de error
+     // Vuelve a intentar cargar el dilema actual (el índice no avanzó si hubo error)
+     loadNextDilemma();
 }
 
 
 /**
  * Inicializa la aplicación al cargar la página.
  */
-async function initializeApp() {
+function initializeApp() {
+    // Añadir event listeners a los botones
     submitBtn.addEventListener('click', handleSubmit);
     nextBtn.addEventListener('click', handleNext);
     restartBtn.addEventListener('click', restartApp);
+    retryBtn.addEventListener('click', handleRetry); // Listener para reintentar
 
-    const generated = await generateAllDilemmas();
-    if (generated) {
-        displayDilemma(currentDilemmaIndex);
-    }
-    // Si 'generated' es false, la función showError ya habrá mostrado un error.
+    // Cargar el primer dilema al iniciar
+    loadNextDilemma();
 }
 
 // --- Iniciar la Aplicación ---
-initializeApp();
+// Esperar a que el DOM esté completamente cargado para asegurar que todos los elementos existen
+document.addEventListener('DOMContentLoaded', initializeApp);
