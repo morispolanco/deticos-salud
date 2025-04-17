@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dilemas Éticos en Salud</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="app">
+        <h1>Dilemas Éticos en Salud</h1>
+
+        <div id="loading" class="loading">
+            <p>Generando dilemas éticos con IA... Por favor, espera.</p>
+            <div class="spinner"></div>
+        </div>
+
+        <div id="dilemma-container" style="display: none;">
+            <p id="progress">Dilema 1 de 20</p>
+            <div class="dilemma-box">
+                <h2>Situación:</h2>
+                <p id="dilemma-text"></p>
+                <h2>Pregunta:</h2>
+                <p id="question-text"></p>
+            </div>
+
+            <div id="options-container" class="options">
+                <!-- Las opciones se generarán aquí -->
+            </div>
+
+            <button id="submit-btn" disabled>Enviar Respuesta</button>
+
+            <div id="feedback-area" class="feedback" style="display: none;">
+                <h3>Retroalimentación:</h3>
+                <p id="feedback-text"></p>
+                <button id="next-btn">Siguiente Dilema</button>
+            </div>
+        </div>
+
+        <div id="end-screen" style="display: none;">
+            <h2>¡Has completado los 20 dilemas!</h2>
+            <p>Gracias por reflexionar sobre estos complejos escenarios éticos en salud.</p>
+            <button id="restart-btn">Volver a empezar</button>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
